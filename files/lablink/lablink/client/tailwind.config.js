@@ -1,7 +1,7 @@
 export default {
   content: ['./index.html', './src/**/*.{js,jsx}'],
   theme: { extend: {
-    colors: { navy: { 950: '#071327', 900: '#0b1f3a', 800: '#12305a', 700: '#1b447e' }, cyan: { 400: '#22d3ee', 500: '#06b6d4', 600: '#0891b2' } },
+    colors: { navy: { 950: '#061426', 900: '#0a1d33', 800: '#102a45', 700: '#176bce' }, cyan: { 400: '#00d9ff', 500: '#00bfe8', 600: '#0098c7' } },
     fontFamily: { display: ['Sora', 'sans-serif'], sans: ['"DM Sans"', 'sans-serif'] },
   } },
   plugins: [],

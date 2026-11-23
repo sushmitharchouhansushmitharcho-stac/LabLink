@@ -1,8 +1,13 @@
 import React from 'react';
-import { Cpu, Gauge, AppWindow, Server, Printer, FlaskConical } from 'lucide-react';
+import {
+  Cpu, Gauge, AppWindow, Server, Printer, FlaskConical, Code2, BrainCircuit, Cloud,
+  Database, BookOpenCheck, BriefcaseBusiness, Sparkles,
+} from 'lucide-react';
 
 const icons = { 'Development Kit': Cpu, Instrument: Gauge, Software: AppWindow, Computing: Server, Fabrication: Printer };
+const questionIcons = { Code2, BrainCircuit, Cloud, Database, Cpu, BookOpenCheck, BriefcaseBusiness };
 export const CatIcon = ({ category, ...p }) => { const I = icons[category] || FlaskConical; return <I {...p} />; };
+export const QuestionCategoryIcon = ({ name, ...props }) => { const I = questionIcons[name] || Sparkles; return <I {...props} />; };
 
 const tone = {
   pending: 'bg-amber-100 text-amber-800', approved: 'bg-emerald-100 text-emerald-800',
@@ -30,7 +35,7 @@ export const ResourceCard = ({ r, onClick }) => (
 
 export const Stat = ({ icon: I, label, value }) => (
   <div className="card flex items-center gap-4 p-5">
-    <div className="rounded-xl bg-cyan-100 p-3 text-cyan-600"><I className="h-5 w-5" /></div>
+    <div className="rounded-xl border border-cyan-300/20 bg-cyan-300/10 p-3 text-cyan-200"><I className="h-5 w-5" /></div>
     <div><div className="font-display text-2xl font-bold">{value}</div><div className="text-sm text-slate-500">{label}</div></div>
   </div>
 );

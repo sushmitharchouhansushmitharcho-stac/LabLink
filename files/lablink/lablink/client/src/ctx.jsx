@@ -19,10 +19,11 @@ export function AppProvider({ children }) {
     setTimeout(() => setToast(null), 3500);
   }, []);
   const signIn = (d) => { localStorage.setItem('token', d.token); setUser(d.user); };
+  const updateUser = (nextUser) => setUser((current) => current ? { ...current, ...nextUser } : nextUser);
   const signOut = () => { localStorage.removeItem('token'); setUser(null); };
 
   return (
-    <Ctx.Provider value={{ user, ready, signIn, signOut, notify }}>
+    <Ctx.Provider value={{ user, ready, signIn, signOut, updateUser, notify }}>
       {children}
       {toast && (
         <div role="status" className={`fixed bottom-5 right-5 z-50 max-w-sm rounded-xl px-4 py-3 text-sm font-medium shadow-lg ${toast.type === 'error' ? 'bg-red-600 text-white' : 'bg-navy-900 text-white'}`}>

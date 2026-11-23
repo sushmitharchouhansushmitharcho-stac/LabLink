@@ -1,11 +1,82 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
-import { User, Resource, Booking } from './models.js';
+import mongoose from 'mongoose';
+import { User, Resource, Booking, BookingSlot, Question, Notification } from './models.js';
+import { QUESTION_CATEGORIES, QUESTION_CATEGORY_IDS } from './questionCategories.js';
 import { auth, sign } from './auth.js';
 
 const r = Router();
 const fail = (status, message) => Object.assign(new Error(message), { status });
 const safe = (u) => ({ id: u._id, name: u.name, email: u.email, role: u.role, department: u.department });
+const questionPopulate = [
+  { path: 'author', select: 'name role department' },
+  { path: 'answers.author', select: 'name role department' },
+];
+const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/* ---------- Student questions & answers ---------- */
+r.get('/questions/categories', auth(), (req, res) => res.json(QUESTION_CATEGORIES));
+r.get('/questions', auth(), async (req, res) => {
+  const { q = '', category, mine, sort = 'recent' } = req.query;
+  if (typeof q !== 'string') throw fail(400, 'Search must be a text value');
+  if (category && !QUESTION_CATEGORY_IDS.includes(category)) throw fail(400, 'Choose a valid question category');
+  if (!['recent', 'popular'].includes(sort)) throw fail(400, 'Choose a valid sort order');
+  const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
+  const limit = Math.min(50, Math.max(1, Number.parseInt(req.query.limit, 10) || 20));
+  const filter = {};
+  if (category) filter.category = category;
+  if (mine === 'true') filter.author = req.user._id;
+  if (q.trim()) {
+    const search = new RegExp(escapeRegex(q.trim()), 'i');
+    filter.$or = [{ title: search }, { body: search }, { tags: search }];
+  }
+  const order = sort === 'popular' ? { answerCount: -1, createdAt: -1 } : { createdAt: -1 };
+  const [items, total] = await Promise.all([
+    Question.find(filter).populate(questionPopulate).sort(order).skip((page - 1) * limit).limit(limit),
+    Question.countDocuments(filter),
+  ]);
+  res.json({ items, total, page, pages: Math.ceil(total / limit) });
+});
+r.get('/questions/:id', auth(), async (req, res) => {
+  if (!mongoose.isValidObjectId(req.params.id)) throw fail(404, 'Question not found');
+  const question = await Question.findById(req.params.id).populate(questionPopulate);
+  if (!question) throw fail(404, 'Question not found');
+  res.json(question);
+});
+r.post('/questions', auth(), async (req, res) => {
+  const { title, body, category, tags = [] } = req.body || {};
+  if (typeof title !== 'string' || title.trim().length < 8 || title.trim().length > 140) {
+    throw fail(400, 'Question title must be between 8 and 140 characters');
+  }
+  if (typeof body !== 'string' || body.trim().length < 15 || body.trim().length > 6000) {
+    throw fail(400, 'Question details must be between 15 and 6000 characters');
+  }
+  if (!QUESTION_CATEGORY_IDS.includes(category)) throw fail(400, 'Choose a valid question category');
+  if (!Array.isArray(tags)) throw fail(400, 'Question tags must be a list');
+  const cleanTags = [...new Set(tags
+    .filter((tag) => typeof tag === 'string')
+    .map((tag) => tag.trim().toLowerCase().replace(/^#/, '').slice(0, 30))
+    .filter(Boolean))].slice(0, 8);
+  const question = await Question.create({
+    title: title.trim(), body: body.trim(), category, tags: cleanTags, author: req.user._id,
+  });
+  await question.populate(questionPopulate);
+  res.status(201).json(question);
+});
+r.post('/questions/:id/answers', auth(), async (req, res) => {
+  if (!mongoose.isValidObjectId(req.params.id)) throw fail(404, 'Question not found');
+  const { body } = req.body || {};
+  if (typeof body !== 'string' || body.trim().length < 3 || body.trim().length > 4000) {
+    throw fail(400, 'Your response must be between 3 and 4000 characters');
+  }
+  const question = await Question.findByIdAndUpdate(
+    req.params.id,
+    { $push: { answers: { body: body.trim(), author: req.user._id } }, $inc: { answerCount: 1 } },
+    { new: true, runValidators: true },
+  ).populate(questionPopulate);
+  if (!question) throw fail(404, 'Question not found');
+  res.status(201).json(question);
+});
 
 /* ---------- Availability: available = total - approved bookings active today ---------- */
 async function recalc(id) {
@@ -14,22 +85,71 @@ async function recalc(id) {
   const res = await Resource.findById(id);
   if (res) { res.available = res.status === 'maintenance' ? 0 : Math.max(0, res.total - used); await res.save(); }
 }
+const dateKeysBetween = (start, end) => {
+  const first = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()));
+  const last = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate()));
+  const dates = [];
+  for (const day = new Date(first); day <= last; day.setUTCDate(day.getUTCDate() + 1)) {
+    dates.push(day.toISOString().slice(0, 10));
+  }
+  return dates;
+};
+async function reserveBookingUnit(booking, resource) {
+  const days = dateKeysBetween(booking.startDate, booking.endDate);
+  const overlaps = await Booking.find({
+    _id: { $ne: booking._id },
+    resource: resource._id,
+    status: 'approved',
+    startDate: { $lte: booking.endDate },
+    endDate: { $gte: booking.startDate },
+  }).select('startDate endDate allocatedUnit').sort('startDate');
+  const occupiedByDay = new Map(days.map((day) => [day, new Set()]));
+  for (const existing of overlaps) {
+    const unit = Number.isInteger(existing.allocatedUnit) ? existing.allocatedUnit : null;
+    for (const day of days) {
+      const start = new Date(`${day}T00:00:00.000Z`);
+      const end = new Date(`${day}T23:59:59.999Z`);
+      if (existing.startDate <= end && existing.endDate >= start) {
+        const occupied = occupiedByDay.get(day);
+        if (unit !== null) occupied.add(unit);
+        else {
+          let legacyUnit = 0;
+          while (legacyUnit < resource.total && occupied.has(legacyUnit)) legacyUnit += 1;
+          if (legacyUnit < resource.total) occupied.add(legacyUnit);
+        }
+      }
+    }
+  }
+  for (let unit = 0; unit < resource.total; unit += 1) {
+    if (days.some((day) => occupiedByDay.get(day).has(unit))) continue;
+    try {
+      await BookingSlot.insertMany(days.map((dateKey) => ({ resource: resource._id, dateKey, unit, booking: booking._id })));
+      return unit;
+    } catch (error) {
+      await BookingSlot.deleteMany({ booking: booking._id });
+      if (error.code !== 11000) throw error;
+    }
+  }
+  throw fail(409, 'No equipment unit is available for all requested dates');
+}
 
 /* ---------- Auth ---------- */
 r.post('/auth/register', async (req, res) => {
-  const { name, email, password, role = 'student', department, code } = req.body;
-  if (!name || !email || !password || password.length < 6) throw fail(400, 'Name, email and a password of 6+ characters are required');
-  if (role === 'faculty' && code !== (process.env.FACULTY_CODE || 'FACULTY2026')) throw fail(403, 'Invalid faculty invite code');
-  if (role === 'admin' && code !== (process.env.ADMIN_CODE || 'LABADMIN2026')) throw fail(403, 'Invalid admin invite code');
-  if (!['student', 'faculty', 'admin'].includes(role)) throw fail(400, 'Invalid role');
-  if (await User.findOne({ email })) throw fail(409, 'An account with this email already exists');
-  const u = await User.create({ name, email, department, role, password: await bcrypt.hash(password, 10) });
+  const { name, email, password, role = 'student', department } = req.body || {};
+  if (role !== 'student') throw fail(403, 'Only administrators can create staff and administrator accounts');
+  if (typeof name !== 'string' || !name.trim() || typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) || typeof password !== 'string' || password.length < 8) {
+    throw fail(400, 'Enter a name, valid email and a password of at least 8 characters');
+  }
+  if (await User.findOne({ email: email.trim().toLowerCase() })) throw fail(409, 'An account with this email already exists');
+  const u = await User.create({ name: name.trim(), email: email.trim().toLowerCase(), department, role: 'student', password: await bcrypt.hash(password, 12) });
   res.status(201).json({ token: sign(u), user: safe(u) });
 });
 r.post('/auth/login', async (req, res) => {
-  const u = await User.findOne({ email: (req.body.email || '').toLowerCase() });
-  if (!u || !(await bcrypt.compare(req.body.password || '', u.password))) throw fail(401, 'Incorrect email or password');
-  res.json({ token: sign(u), user: safe(u) });
+  const { email, password, role, remember = true } = req.body || {};
+  const u = await User.findOne({ email: typeof email === 'string' ? email.trim().toLowerCase() : '' });
+  if (!u || !u.active || !(await bcrypt.compare(password || '', u.password))) throw fail(401, 'Incorrect email or password');
+  if (role && role !== u.role && !(role === 'facultyCoordinator' && u.role === 'faculty')) throw fail(403, 'This account does not have the selected role');
+  res.json({ token: sign(u, remember !== false), user: safe(u) });
 });
 r.get('/auth/me', auth(), (req, res) => res.json({ user: safe(req.user) }));
 
@@ -54,22 +174,23 @@ r.get('/resources/:id', auth(), async (req, res) => {
   if (!x) throw fail(404, 'Resource not found');
   res.json(x);
 });
-r.post('/resources', auth('admin'), async (req, res) => {
+r.post('/resources', auth('admin', 'labInCharge'), async (req, res) => {
   const x = await Resource.create({ ...req.body, available: req.body.total ?? 1 });
   res.status(201).json(x);
 });
-r.put('/resources/:id', auth('admin'), async (req, res) => {
+r.put('/resources/:id', auth('admin', 'labInCharge'), async (req, res) => {
   const x = await Resource.findByIdAndUpdate(req.params.id, req.body, { new: true });
   if (!x) throw fail(404, 'Resource not found');
   await recalc(x._id);
   res.json(await Resource.findById(x._id));
 });
-r.delete('/resources/:id', auth('admin'), async (req, res) => {
+r.delete('/resources/:id', auth('admin', 'labInCharge'), async (req, res) => {
   await Resource.findByIdAndDelete(req.params.id);
   await Booking.deleteMany({ resource: req.params.id });
+  await BookingSlot.deleteMany({ resource: req.params.id });
   res.json({ ok: true });
 });
-r.post('/resources/:id/recommend', auth('faculty'), async (req, res) => {
+r.post('/resources/:id/recommend', auth('facultyCoordinator', 'admin'), async (req, res) => {
   const x = await Resource.findById(req.params.id);
   if (!x) throw fail(404, 'Resource not found');
   x.recommendations.push({ by: req.user.name, note: req.body.note || 'Recommended for academic projects' });
@@ -79,14 +200,16 @@ r.post('/resources/:id/recommend', auth('faculty'), async (req, res) => {
 
 /* ---------- Bookings ---------- */
 r.post('/bookings', auth('student'), async (req, res) => {
-  const { resource, startDate, endDate, purpose } = req.body;
+  const { resource, startDate, endDate, purpose } = req.body || {};
+  if (!mongoose.isValidObjectId(resource)) throw fail(400, 'Choose valid equipment');
   const s = new Date(startDate), e = new Date(endDate);
   if (isNaN(s) || isNaN(e)) throw fail(400, 'Choose a start and end date');
   e.setHours(23, 59, 59, 999);
   const today = new Date(); today.setHours(0, 0, 0, 0);
   if (s < today) throw fail(400, 'Start date cannot be in the past');
   if (e < s) throw fail(400, 'End date must be on or after the start date');
-  if (!purpose || purpose.trim().length < 5) throw fail(400, 'Describe your purpose in a few words');
+  if ((e - s) / 86400000 > 365) throw fail(400, 'Bookings cannot exceed 366 calendar days');
+  if (typeof purpose !== 'string' || purpose.trim().length < 5) throw fail(400, 'Describe your purpose in a few words');
   const x = await Resource.findById(resource);
   if (!x) throw fail(404, 'Resource not found');
   if (x.status === 'maintenance') throw fail(409, 'This equipment is under maintenance');
@@ -97,40 +220,61 @@ r.get('/bookings/mine', auth('student'), async (req, res) => {
   res.json(await Booking.find({ user: req.user._id }).populate('resource', 'name lab location category').sort('-createdAt'));
 });
 r.delete('/bookings/:id', auth('student'), async (req, res) => {
+  if (!mongoose.isValidObjectId(req.params.id)) throw fail(404, 'Booking not found');
   const b = await Booking.findOne({ _id: req.params.id, user: req.user._id });
   if (!b) throw fail(404, 'Booking not found');
   if (b.status !== 'pending') throw fail(409, 'Only pending requests can be cancelled');
   await b.deleteOne();
   res.json({ ok: true });
 });
-r.get('/bookings', auth('faculty', 'admin'), async (req, res) => {
+r.get('/bookings', auth('facultyCoordinator', 'labInCharge', 'dean', 'admin'), async (req, res) => {
   let list = await Booking.find().populate('resource').populate('user', 'name email department').sort('-createdAt');
-  // Faculty only see requests for resources in their own department
-  if (req.user.role === 'faculty') list = list.filter((b) => b.resource && b.resource.department === req.user.department);
+  if (['facultyCoordinator', 'labInCharge'].includes(req.user.role)) {
+    list = list.filter((b) => b.resource && b.resource.department === req.user.department);
+  }
   res.json(list);
 });
-r.patch('/bookings/:id/status', auth('faculty', 'admin'), async (req, res) => {
-  const { status } = req.body;
+r.patch('/bookings/:id/status', auth('facultyCoordinator', 'labInCharge', 'admin'), async (req, res) => {
+  if (!mongoose.isValidObjectId(req.params.id)) throw fail(404, 'Booking not found');
+  const { status } = req.body || {};
   if (!['approved', 'rejected', 'completed'].includes(status)) throw fail(400, 'Invalid status');
   const b = await Booking.findById(req.params.id).populate('resource');
   if (!b) throw fail(404, 'Booking not found');
-  if (req.user.role === 'faculty' && b.resource.department !== req.user.department) throw fail(403, 'You can only review requests for your department');
+  if (['facultyCoordinator', 'labInCharge'].includes(req.user.role) && b.resource.department !== req.user.department) throw fail(403, 'You can only review requests for your department');
+  if (req.user.role === 'facultyCoordinator') throw fail(403, 'Faculty Coordinators cannot approve equipment bookings');
   if (status === 'approved') {
     if (b.status !== 'pending') throw fail(409, 'Only pending requests can be approved');
-    const overlap = await Booking.countDocuments({ resource: b.resource._id, status: 'approved', startDate: { $lte: b.endDate }, endDate: { $gte: b.startDate } });
-    if (overlap >= b.resource.total) throw fail(409, 'No units free for these dates');
+    if (b.resource.status === 'maintenance') throw fail(409, 'Equipment under maintenance cannot be approved');
+    b.allocatedUnit = await reserveBookingUnit(b, b.resource);
   }
   if (status === 'rejected' && !['pending', 'approved'].includes(b.status)) throw fail(409, 'This request is already closed');
   if (status === 'completed' && b.status !== 'approved') throw fail(409, 'Only approved bookings can be completed');
+  if (status === 'rejected' && b.status === 'approved' || status === 'completed') {
+    await BookingSlot.deleteMany({ booking: b._id });
+    b.allocatedUnit = undefined;
+  }
   b.status = status; b.reviewedBy = req.user._id;
-  await b.save();
+  try {
+    await b.save();
+  } catch (error) {
+    if (status === 'approved') await BookingSlot.deleteMany({ booking: b._id });
+    throw error;
+  }
+  const bookingUser = await User.findById(b.user).select('_id');
+  if (bookingUser) await Notification.create({
+    recipient: bookingUser._id,
+    title: `Equipment booking ${status}`,
+    body: `${b.resource.name} · ${b.startDate.toLocaleDateString()} – ${b.endDate.toLocaleDateString()}`,
+    type: `booking-${status}`,
+    link: '/bookings',
+  });
   await recalc(b.resource._id);
-  res.json(b);
+  res.json(await b.populate([{ path: 'resource' }, { path: 'user', select: 'name email department' }]));
 });
 
 /* ---------- Users & analytics ---------- */
 r.get('/users', auth('admin'), async (req, res) => res.json((await User.find().sort('-createdAt')).map(safe)));
-r.get('/analytics', auth('faculty', 'admin'), async (req, res) => {
+r.get('/analytics', auth('facultyCoordinator', 'dean', 'admin'), async (req, res) => {
   const [resources, bookings] = await Promise.all([Resource.find(), Booking.find().populate('resource')]);
   const count = (arr, fn) => Object.entries(arr.reduce((m, x) => { const k = fn(x); if (k) m[k] = (m[k] || 0) + 1; return m; }, {})).map(([name, value]) => ({ name, value }));
   const used = bookings.filter((b) => ['approved', 'completed'].includes(b.status));

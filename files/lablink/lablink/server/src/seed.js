@@ -2,13 +2,32 @@ import bcrypt from 'bcryptjs';
 import { User, Resource } from './models.js';
 
 export default async function seed() {
-  if (await User.countDocuments()) return;
-  const pw = await bcrypt.hash('password123', 10);
-  await User.create([
-    { name: 'Lab Admin', email: 'admin@lablink.edu', password: pw, role: 'admin', department: 'Electronics' },
-    { name: 'Dr. Meera Rao', email: 'faculty@lablink.edu', password: pw, role: 'faculty', department: 'Electronics' },
-    { name: 'Arjun Nair', email: 'student@lablink.edu', password: pw, role: 'student', department: 'Computer Science' },
-  ]);
+  await User.updateMany({ role: 'faculty' }, { $set: { role: 'facultyCoordinator' } });
+  await User.updateMany({ active: { $exists: false } }, { $set: { active: true } });
+  const demos = [
+    ['DEMO_STUDENT_PASSWORD', 'student@lablink.demo', 'Student Demo', 'student'],
+    ['DEMO_FACULTY_PASSWORD', 'faculty@lablink.demo', 'Faculty Coordinator Demo', 'facultyCoordinator'],
+    ['DEMO_LAB_INCHARGE_PASSWORD', 'labincharge@lablink.demo', 'Lab In-Charge Demo', 'labInCharge'],
+    ['DEMO_DEAN_PASSWORD', 'dean@lablink.demo', 'Dean Demo', 'dean'],
+    ['DEMO_ADMIN_PASSWORD', 'admin@lablink.demo', 'System Admin Demo', 'admin'],
+  ];
+  for (const [environmentKey, email, name, role] of demos) {
+    const rawPassword = process.env[environmentKey];
+    if (!rawPassword) continue;
+    if (rawPassword.length < 12) throw new Error(`${environmentKey} must contain at least 12 characters`);
+    if (await User.exists({ email })) continue;
+    const password = await bcrypt.hash(rawPassword, 12);
+    await User.updateOne(
+      { email },
+      { $setOnInsert: { name, email, password, role, department: 'Configure department', active: true } },
+      { upsert: true },
+    );
+  }
+  if (!demos.some(([key]) => process.env[key])) {
+    console.warn('Demo accounts were not created; configure DEMO_*_PASSWORD values in the server environment.');
+  }
+  if (await Resource.countDocuments()) return;
+
   const R = (name, category, department, lab, location, total, description, specs, tags, status = 'active') =>
     ({ name, category, department, lab, location, total, available: status === 'active' ? total : 0, description, specs, tags, status });
   await Resource.create([
@@ -25,5 +44,5 @@ export default async function seed() {
     R('PCB Milling Machine', 'Fabrication', 'Electronics', 'Makerspace', 'Block B, Room 010', 1, 'In-house PCB prototyping without outsourcing.', ['0.1 mm trace', 'Double-sided', 'Auto tool change'], ['pcb', 'prototype', 'circuits'], 'maintenance'),
     R('Biomedical Sensor Kit (ECG/EMG)', 'Development Kit', 'Biomedical', 'Biosignal Lab', 'Block F, Room 110', 7, 'Wearable-grade sensors for biosignal acquisition projects.', ['ECG, EMG, SpO2', 'Bluetooth streaming', 'Python SDK'], ['health', 'biosignal', 'wearable', 'ecg']),
   ]);
-  console.log('Seeded demo data. Logins (password123): admin@, faculty@, student@lablink.edu');
+  console.log('Seeded LabLink resource catalogue.');
 }

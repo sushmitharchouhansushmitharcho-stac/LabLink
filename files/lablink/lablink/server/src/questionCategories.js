@@ -1,0 +1,60 @@
+export const QUESTION_CATEGORIES = [
+  {
+    id: 'programming',
+    name: 'Programming & Development',
+    description: 'Languages, debugging, web and app development.',
+    topics: ['C / C++', 'Java', 'Python', 'JavaScript', 'Debugging', 'Web & apps'],
+    tags: ['c', 'cpp', 'java', 'python', 'javascript', 'debugging', 'web', 'mobile'],
+    icon: 'Code2',
+  },
+  {
+    id: 'ai-ml',
+    name: 'Artificial Intelligence & Machine Learning',
+    description: 'Build models, explore data science and generative AI.',
+    topics: ['AI projects', 'Model development', 'Data science', 'Generative AI'],
+    tags: ['artificial-intelligence', 'machine-learning', 'models', 'data-science', 'generative-ai'],
+    icon: 'BrainCircuit',
+  },
+  {
+    id: 'cloud-devops',
+    name: 'Cloud Computing & DevOps',
+    description: 'Cloud platforms, deployment and delivery pipelines.',
+    topics: ['AWS', 'Azure', 'Google Cloud', 'Docker', 'Kubernetes', 'CI/CD'],
+    tags: ['aws', 'azure', 'gcp', 'deployment', 'docker', 'kubernetes', 'ci-cd'],
+    icon: 'Cloud',
+  },
+  {
+    id: 'database',
+    name: 'Database & Data Structures',
+    description: 'Data stores, algorithms and database management.',
+    topics: ['SQL', 'MongoDB', 'Data structures', 'Algorithms', 'Database management'],
+    tags: ['sql', 'mongodb', 'data-structures', 'algorithms', 'databases'],
+    icon: 'Database',
+  },
+  {
+    id: 'electronics',
+    name: 'Electronics & Hardware',
+    description: 'Connect software to sensors, devices and embedded systems.',
+    topics: ['IoT', 'Embedded systems', 'Sensors', 'Hardware projects'],
+    tags: ['iot', 'embedded', 'sensors', 'electronics', 'hardware'],
+    icon: 'Cpu',
+  },
+  {
+    id: 'academic',
+    name: 'Academic & Research',
+    description: 'Get guidance on coursework, research and technical ideas.',
+    topics: ['Assignments', 'Research papers', 'Technical concepts', 'Project guidance'],
+    tags: ['assignments', 'research', 'technical-concepts', 'projects', 'writing'],
+    icon: 'BookOpenCheck',
+  },
+  {
+    id: 'career',
+    name: 'Career & Opportunities',
+    description: 'Share opportunities and learn how to take the next step.',
+    topics: ['Internships', 'Hackathons', 'Certifications', 'Career guidance'],
+    tags: ['internships', 'hackathons', 'certifications', 'careers', 'opportunities'],
+    icon: 'BriefcaseBusiness',
+  },
+];
+
+export const QUESTION_CATEGORY_IDS = QUESTION_CATEGORIES.map(({ id }) => id);

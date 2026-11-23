@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { Search, CalendarCheck, Sparkles, Share2, Activity, ShieldCheck } from 'lucide-react';
+import { Search, CalendarCheck, Sparkles, Share2, Activity, ShieldCheck, ArrowRight, FlaskConical } from 'lucide-react';
 import { useApp } from '../ctx.jsx';
 import { home } from '../App.jsx';
 
@@ -16,37 +16,46 @@ const features = [
 export default function Landing() {
   const { user } = useApp();
   return (
-    <>
-      <section className="relative overflow-hidden bg-navy-900 text-white">
-        <div className="mx-auto grid max-w-7xl items-center gap-10 px-4 py-20 md:grid-cols-2 md:py-28">
-          <div>
-            <h1 className="text-4xl font-extrabold leading-tight md:text-6xl">Every lab on campus, one request away.</h1>
-            <p className="mt-5 max-w-lg text-lg text-slate-300">LabLink connects students, faculty and lab administrators so specialised equipment, dev kits and software reach the people who need them.</p>
+    <div className="landing-page">
+      <section className="landing-hero">
+        <div className="landing-orb landing-orb-one" aria-hidden="true" />
+        <div className="landing-orb landing-orb-two" aria-hidden="true" />
+        <div className="landing-particles" aria-hidden="true" />
+        <div className="mx-auto grid max-w-7xl items-center gap-12 px-4 py-20 md:grid-cols-2 md:py-28">
+          <div className="relative">
+            <div className="landing-eyebrow"><FlaskConical className="h-4 w-4" /> THE CAMPUS LAB NETWORK</div>
+            <h1 className="landing-title">LabLink</h1>
+            <p className="landing-tagline">Connect. Collaborate. Create.</p>
+            <p className="mt-5 max-w-lg text-base leading-7 text-slate-300 md:text-lg">One connected platform for discovering campus equipment, requesting lab access and bringing ambitious ideas to life.</p>
             <div className="mt-8 flex flex-wrap gap-3">
-              <Link to={user ? home(user) : '/auth?mode=register'} className="btn-cyan">{user ? 'Open your dashboard' : 'Create a student account'}</Link>
-              {!user && <Link to="/auth" className="btn border border-white/30 text-white hover:bg-white/10">Log in</Link>}
+              <Link to={user ? home(user) : '/auth?mode=register'} className="btn-cyan landing-cta">{user ? 'Open your dashboard' : 'Get Started'}<ArrowRight className="h-4 w-4" /></Link>
+              {!user && <Link to="/auth" className="btn landing-login">Login</Link>}
             </div>
           </div>
-          <div className="card border-white/10 bg-white/5 p-6 text-white backdrop-blur">
-            <div className="mb-4 flex items-center gap-2 text-sm text-cyan-300"><span className="relative flex h-3 w-3"><span className="pulse-ring absolute h-3 w-3 rounded-full bg-cyan-400" /><span className="h-3 w-3 rounded-full bg-cyan-400" /></span>Live availability</div>
+          <div className="landing-preview">
+            <div className="mb-4 flex items-center gap-2 text-sm text-cyan-200"><span className="relative flex h-3 w-3"><span className="pulse-ring absolute h-3 w-3 rounded-full bg-cyan-300" /><span className="h-3 w-3 rounded-full bg-cyan-300" /></span>Live availability</div>
             {[['NVIDIA Jetson Orin Nano', 'AI & ML Lab', '4 of 4 free'], ['Spectrum Analyzer', 'RF Lab', '1 of 2 free'], ['FPGA Artix-7 Board', 'VLSI Lab', '6 of 8 free']].map(([n, l, a]) => (
-              <div key={n} className="flex items-center justify-between border-t border-white/10 py-3 first:border-0">
-                <div><div className="font-bold">{n}</div><div className="text-sm text-slate-400">{l}</div></div>
-                <span className="rounded-full bg-cyan-400/20 px-3 py-1 text-xs font-bold text-cyan-300">{a}</span>
+              <div key={n} className="landing-resource-row">
+                <div><div className="font-semibold text-slate-100">{n}</div><div className="mt-1 text-sm text-slate-400">{l}</div></div>
+                <span className="rounded-full border border-cyan-300/20 bg-cyan-300/10 px-3 py-1 text-xs font-bold text-cyan-200">{a}</span>
               </div>
             ))}
           </div>
         </div>
       </section>
-      <section className="mx-auto max-w-7xl px-4 py-16">
-        <h2 className="max-w-xl text-3xl font-bold">Built for how labs actually work</h2>
+      <section className="landing-features mx-auto max-w-7xl px-4 py-16 md:py-20">
+        <div className="mb-8 max-w-2xl">
+          <div className="landing-eyebrow">ONE PLATFORM. MORE POSSIBILITIES.</div>
+          <h2 className="mt-3 text-3xl font-bold text-white md:text-4xl">Built for how labs actually work</h2>
+          <p className="mt-3 text-slate-400">From the first search to the final checkout, keep your campus projects moving.</p>
+        </div>
         <div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {features.map(([I, t, d]) => (
-            <div key={t} className="card p-6"><I className="h-6 w-6 text-cyan-600" /><h3 className="mt-4 font-bold">{t}</h3><p className="mt-1 text-sm text-slate-600">{d}</p></div>
+            <div key={t} className="feature-card"><div className="feature-icon"><I className="h-5 w-5" /></div><h3 className="mt-4 font-bold text-slate-100">{t}</h3><p className="mt-2 text-sm leading-6 text-slate-400">{d}</p></div>
           ))}
         </div>
       </section>
-      <footer className="border-t border-slate-200 py-6 text-center text-sm text-slate-500">LabLink – Making College Laboratories More Accessible</footer>
-    </>
+      <footer className="landing-footer">LabLink · Making college laboratories more accessible</footer>
+    </div>
   );
 }
